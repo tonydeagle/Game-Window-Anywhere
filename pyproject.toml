@@ -18,5 +18,11 @@ classifiers = [
 [project.scripts]
 gwa = "gwa.cli:main"
 
+[project.optional-dependencies]
+gui = ["PySide6-Essentials>=6.5"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+gwa = ["assets/*.svg"]

@@ -103,3 +103,49 @@ def compute_zone(
 def fits(rect: Rect, screen: tuple[int, int]) -> bool:
     sw, sh = screen
     return rect.x >= 0 and rect.y >= 0 and rect.x + rect.w <= sw and rect.y + rect.h <= sh
+
+
+# ---------------------------------------------------------------- size choices (GUI list)
+
+COMMON_SIZES = [
+    (3840, 2160), (3440, 1440), (2560, 1600), (2560, 1440), (2560, 1080), (1920, 1200),
+    (1920, 1080), (1680, 1050), (1600, 900), (1440, 900), (1366, 768), (1280, 1024),
+    (1280, 800), (1280, 720), (1024, 768), (800, 600),
+]
+_ASPECTS = {"16:9": 16 / 9, "16:10": 16 / 10, "21:9": 64 / 27, "32:9": 32 / 9, "4:3": 4 / 3, "5:4": 5 / 4}
+
+
+@dataclass(frozen=True)
+class SizeChoice:
+    w: int
+    h: int
+    note: str  # e.g. "half width" or "16:9"
+
+
+def aspect_name(w: int, h: int) -> str:
+    r = w / h
+    for name, v in _ASPECTS.items():
+        if abs(r - v) / v < 0.015:
+            return name
+    return f"{r:.2f}:1"
+
+
+def size_choices(screen: tuple[int, int]) -> list[SizeChoice]:
+    """Sizes that fit on ``screen``: splits of the screen first, then common resolutions."""
+    sw, sh = screen
+    splits = [
+        ((sw, sh), "full screen"),
+        ((round(sw * 2 / 3), sh), "two-thirds width"),
+        ((sw // 2, sh), "half width"),
+        ((round(sw / 3), sh), "one-third width"),
+    ]
+    out: list[SizeChoice] = []
+    seen: set[tuple[int, int]] = set()
+    for (w, h), note in splits:
+        if (w, h) not in seen and w > 0:
+            seen.add((w, h))
+            out.append(SizeChoice(w, h, note))
+    common = [s for s in COMMON_SIZES if s[0] <= sw and s[1] <= sh and s not in seen]
+    for w, h in sorted(common, key=lambda s: (-s[0] * s[1], -s[0])):
+        out.append(SizeChoice(w, h, aspect_name(w, h)))
+    return out

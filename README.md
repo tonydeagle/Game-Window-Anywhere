@@ -60,6 +60,37 @@ To skip the launcher, `gwa run` writes the rule and then starts gamescope direct
 gwa run left -- ~/Games/SlayTheSpire/SlayTheSpire
 ```
 
+### GUI
+
+```sh
+gwa gui
+```
+
+A preset editor window with a blue theme. It has:
+
+- a list of your games
+- a live preview of your monitor with the zone drawn on it
+- a scrollable list of game sizes that fit your screen (half, two-thirds and one-third width,
+  then common resolutions), plus **Custom size…** for anything non-standard
+- Left / Center / Right / Custom positions
+- an optional lower render resolution for upscaling
+- the Steam and Heroic launch options, each with a Copy button
+- a short description under every setting
+
+Changes are kept until you click **Save** (Ctrl+S). Unsaved games show a • in the list, and
+closing the window asks whether to save, discard or cancel. **Apply zone now** writes the KWin
+rule straight away without launching anything.
+
+The GUI needs PySide6 (the CLI doesn't):
+
+| Distro | Install |
+|---|---|
+| Arch | `sudo pacman -S pyside6` |
+| Fedora | `sudo dnf install python3-pyside6` |
+| Debian / Ubuntu | `sudo apt install python3-pyside6.qtwidgets` |
+| openSUSE | `sudo zypper install python3-pyside6` |
+| pip | `pip install --user PySide6-Essentials` |
+
 ### Per-game presets
 
 Save a zone once per game, then refer to it by name anywhere you'd write `left` or `right`:
@@ -148,7 +179,7 @@ hardware yet. Reports are welcome.
 
 - There is one zone at a time, because every gamescope window has the class `gamescope`.
   Running two games in two zones at once would need per-instance window matching.
-- Planned: a small GUI (on top of the presets file) and monitor detection via `kscreen-doctor`.
+- Planned: monitor detection via `kscreen-doctor`, and an app-menu entry for the GUI.
 
 ## Development
 
