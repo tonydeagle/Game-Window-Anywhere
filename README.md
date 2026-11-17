@@ -128,13 +128,14 @@ previous game's zone.
 
 | Setup | Result |
 |---|---|
-| KDE Plasma 6, Wayland, 3440x1440 ultrawide | `left` and `right` presets: window placed exactly, no frame |
-| Slay the Spire (native, Steam) | Works in both zones at 1720x1440 |
-| Rocket League | Works in both zones at 1720x1440, no noticeable input lag |
+| KDE Plasma 6, Wayland, 3440x1440 ultrawide | `left`/`right` and presets: window placed exactly, no frame |
+| Slay the Spire 2 (Steam, Steam Linux Runtime) | Works at 1720x1440 left; `gwa run spire -- %command%` launch option |
+| Rocket League (Heroic / Epic, via umu-run) | Works at 1720x1440 and 2560x1440 right, no noticeable input lag; Heroic wrapper `gwa run rocketleague --` |
+| Automatic switching | Launching the two games alternately (twice each) puts each in its own zone every time |
 | `vkcube` in nested gamescope | Lands in the zone; KWin reports class `gamescope` |
 
-Uneven splits (`--width`), `custom`, `center`, `--origin` and `--scale` have unit tests
-but haven't been tried on real hardware yet. Reports are welcome.
+`center`, `custom`, `--origin` and `--scale` have unit tests but haven't been tried on real
+hardware yet. Reports are welcome.
 
 ## Safety
 
