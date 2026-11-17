@@ -85,6 +85,18 @@ gwa run left -- ~/Games/SlayTheSpire/SlayTheSpire
   Heroic's built-in Gamescope section with Game/Upscale size = zone size and *Borderless* and
   *Force grab cursor* checked. The KWin rule still handles placement.
 
+## Tested on
+
+| Setup | Result |
+|---|---|
+| KDE Plasma 6, Wayland, 3440x1440 ultrawide | `left` and `right` presets: window placed exactly, no frame |
+| Slay the Spire (native, Steam) | Works in both zones at 1720x1440 |
+| Rocket League | Works in both zones at 1720x1440, no noticeable input lag |
+| `vkcube` in nested gamescope | Lands in the zone; KWin reports class `gamescope` |
+
+Uneven splits (`--width`), `custom`, `center`, `--origin` and `--scale` have unit tests
+but haven't been tried on real hardware yet. Reports are welcome.
+
 ## Safety
 
 - `gwa` changes only its own rule, which has a fixed UUID, plus the `count` / `rules` keys in
