@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -194,6 +195,16 @@ def _write_rule(args, s: Settings, label: str, kwin_rect: Rect, dry_run: bool = 
     return f"rule written, KWin reload FAILED: {info}"
 
 
+# Launchers pass credentials on the command line (Heroic/Legendary: -AUTH_PASSWORD=<exchange code>).
+_SECRET_ARG = re.compile(r"^(-{0,2}[\w.-]*(?:password|passwd|token|secret|apikey|api_key)[\w.-]*=).+$",
+                         re.IGNORECASE)
+
+
+def redact(cmd: list[str]) -> list[str]:
+    """Hide the values of key=value arguments that look like credentials."""
+    return [_SECRET_ARG.sub(r"\1<redacted>", a) for a in cmd]
+
+
 def _log_path() -> Path:
     base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
     return Path(base) / "game-window-anywhere" / "run.log"
@@ -266,10 +277,11 @@ def cmd_run(args) -> int:
     zone, kwin_rect, gs_args = _resolve(s)
     outcome = _write_rule(args, s, label, kwin_rect)
     cmd = gamescope.full_command(gs_args, game, binary)
-    _log_run([f"run {label}: zone {kwin_rect}", f"  {outcome}", f"  exec: {shlex.join(cmd)}"])
+    shown = shlex.join(redact(cmd))
+    _log_run([f"run {label}: zone {kwin_rect}", f"  {outcome}", f"  exec: {shown}"])
     if "reconfigured" in outcome:
         time.sleep(RELOAD_SETTLE_SECONDS)
-    print(f"exec: {shlex.join(cmd)}", flush=True)
+    print(f"exec: {shown}", flush=True)
     os.execv(binary, cmd)
     return 0  # unreachable
 

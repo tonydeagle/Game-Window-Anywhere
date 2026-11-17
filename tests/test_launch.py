@@ -85,5 +85,30 @@ class RunWaitsAndLogs(unittest.TestCase):
         self.assertIn("exec: /usr/bin/gamescope -W 1720", log)
 
 
+class Redaction(unittest.TestCase):
+    def test_heroic_epic_args(self):
+        cmd = ["/usr/bin/umu-run", "Launcher.exe", "-AUTH_LOGIN=unused", "-AUTH_PASSWORD=83125338c9e0",
+               "-AUTH_TYPE=exchangecode", "-epicapp=Sugar", "--api-token=abc", "client_secret=x",
+               "/games/Slay the Spire 2/run"]
+        self.assertEqual(cli.redact(cmd), [
+            "/usr/bin/umu-run", "Launcher.exe", "-AUTH_LOGIN=unused", "-AUTH_PASSWORD=<redacted>",
+            "-AUTH_TYPE=exchangecode", "-epicapp=Sugar", "--api-token=<redacted>",
+            "client_secret=<redacted>", "/games/Slay the Spire 2/run"])
+
+    @mock.patch("gwa.cli.os.execv")
+    @mock.patch("gwa.cli.shutil.which", return_value="/usr/bin/gamescope")
+    def test_secret_not_in_log_or_output_but_still_passed_to_game(self, _which, execv):
+        with tempfile.TemporaryDirectory() as d, \
+             mock.patch.dict(os.environ, {"XDG_CACHE_HOME": d}):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                cli.main(["run", "left", "--rules-file", f"{d}/k", "--presets-file", f"{d}/p.toml",
+                          "--no-reconfigure", "--", "game.exe", "-AUTH_PASSWORD=s3cret"])
+            log = Path(d, "game-window-anywhere", "run.log").read_text()
+        self.assertNotIn("s3cret", log + out.getvalue())
+        self.assertIn("-AUTH_PASSWORD=<redacted>", log)
+        self.assertEqual(execv.call_args.args[1][-1], "-AUTH_PASSWORD=s3cret")
+
+
 if __name__ == "__main__":
     unittest.main()
