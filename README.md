@@ -88,6 +88,17 @@ Steam launch option:   /path/to/gwa run rocketleague -- %command%
 Heroic wrapper:        Executable /path/to/gwa, Arguments: run rocketleague --
 ```
 
+### Troubleshooting a launch
+
+When Steam or Heroic starts `gwa run`, its messages aren't shown anywhere, so each run is also
+logged to `~/.cache/game-window-anywhere/run.log`: which preset, the zone, whether KWin reloaded,
+and the exact gamescope command. If a game opens in the wrong place, that file is the first
+thing to check.
+
+`gwa run` waits about a second after KWin confirms the reload before starting gamescope.
+KWin applies rule changes on a short delay, and without the wait a game could open under the
+previous game's zone.
+
 ### Options
 
 | Option | Meaning |

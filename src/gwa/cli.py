@@ -7,6 +7,8 @@ import os
 import shlex
 import shutil
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 from . import __version__, gamescope, kwinrules, presets
@@ -156,7 +158,13 @@ def _rules_path(args) -> Path:
     return args.rules_file or kwinrules.default_path()
 
 
-def _write_rule(args, s: Settings, label: str, kwin_rect: Rect, dry_run: bool = False) -> None:
+# KWin applies a reconfigure on a short timer, while gamescope maps its window almost
+# instantly; without a pause the window can open under the previous rule.
+RELOAD_SETTLE_SECONDS = 1.0
+
+
+def _write_rule(args, s: Settings, label: str, kwin_rect: Rect, dry_run: bool = False) -> str:
+    """Write the rule and reload KWin. Returns a one-line outcome for the run log."""
     values = kwinrules.build_rule(kwin_rect, s.wmclass, f"{label} {kwin_rect}")
     path = _rules_path(args)
 
@@ -165,7 +173,7 @@ def _write_rule(args, s: Settings, label: str, kwin_rect: Rect, dry_run: bool = 
         print(f"[{kwinrules.RULE_ID}]")
         for k, v in values.items():
             print(f"{k}={v}")
-        return
+        return "dry run"
 
     cfg = kwinrules.KConfig.load(path)
     for other in kwinrules.other_gamescope_rules(cfg, s.wmclass):
@@ -176,13 +184,34 @@ def _write_rule(args, s: Settings, label: str, kwin_rect: Rect, dry_run: bool = 
     print(f"KWin rule written: {path}" + (f" (backup: {backup.name})" if backup else ""))
 
     if args.no_reconfigure:
-        return
+        return "rule written, reload skipped"
     ok, info = kwinrules.reconfigure_kwin()
     if ok:
         print("KWin reconfigured.")
-    else:
-        print(f"warning: couldn't reconfigure KWin ({info}).\n"
-              "         Run: qdbus6 org.kde.KWin /KWin reconfigure", file=sys.stderr)
+        return f"rule written, KWin reconfigured via {info.split()[0]}"
+    print(f"warning: couldn't reconfigure KWin ({info}).\n"
+          "         Run: qdbus6 org.kde.KWin /KWin reconfigure", file=sys.stderr)
+    return f"rule written, KWin reload FAILED: {info}"
+
+
+def _log_path() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return Path(base) / "game-window-anywhere" / "run.log"
+
+
+def _log_run(lines: list[str]) -> None:
+    """Append to run.log: Steam/Heroic hide gwa's output, so keep a record. Never fatal."""
+    try:
+        path = _log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > 256 * 1024:
+            path.replace(path.with_suffix(".log.old"))
+        stamp = datetime.now().isoformat(timespec="seconds")
+        with path.open("a", encoding="utf-8") as f:
+            for line in lines:
+                f.write(f"{stamp} {line}\n")
+    except OSError:
+        pass
 
 
 def _self_command() -> str:
@@ -235,8 +264,11 @@ def cmd_run(args) -> int:
     if binary is None:
         _die("gamescope not found in PATH")
     zone, kwin_rect, gs_args = _resolve(s)
-    _write_rule(args, s, label, kwin_rect)
+    outcome = _write_rule(args, s, label, kwin_rect)
     cmd = gamescope.full_command(gs_args, game, binary)
+    _log_run([f"run {label}: zone {kwin_rect}", f"  {outcome}", f"  exec: {shlex.join(cmd)}"])
+    if "reconfigured" in outcome:
+        time.sleep(RELOAD_SETTLE_SECONDS)
     print(f"exec: {shlex.join(cmd)}", flush=True)
     os.execv(binary, cmd)
     return 0  # unreachable

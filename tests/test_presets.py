@@ -62,6 +62,9 @@ class CliPresets(unittest.TestCase):
         self.presets_file = d / "presets.toml"
         self.rules_file = d / "kwinrulesrc"
         self.addCleanup(self.tmp.cleanup)
+        env = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(d / "cache")})
+        env.start()
+        self.addCleanup(env.stop)
 
     def gwa(self, *argv):
         out, err = io.StringIO(), io.StringIO()
