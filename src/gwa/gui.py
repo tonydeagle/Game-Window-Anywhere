@@ -519,6 +519,11 @@ class LaunchCard(Card):
         super().__init__("Launch options",
                          "Paste these into your launcher once. Every launch then moves the game "
                          "into this preset's zone automatically.")
+        warn = _label("Replace any old “gamescope -W …” line already in the launcher, and turn off "
+                      "Heroic's own Gamescope setting. A leftover fixed size gives black bars and "
+                      "caps the in-game resolution.", "desc", wrap=True)
+        warn.setStyleSheet(f"color: {C['warn']};")
+        self.body.addWidget(warn)
         self.steam = self._line()
         self.heroic_exe = self._line()
         self.heroic_args = self._line()
@@ -668,7 +673,10 @@ class MainWindow(QMainWindow):
         self.status = _label("", "desc", wrap=True)
         fl.addWidget(self.status, 1)
         self.btn_apply = QPushButton("Apply zone now")
-        self.btn_apply.setToolTip("Write the KWin rule for this game right away, without launching it.")
+        self.btn_apply.setToolTip(
+            "Moves and resizes the game window right away, without launching anything.\n"
+            "The game's resolution comes from gamescope, so start the game with this\n"
+            "preset's launch option (below) or it may show black bars.")
         self.btn_revert = QPushButton("Revert")
         self.btn_save = _cls(QPushButton("Save"), "primary")
         for b in (self.btn_apply, self.btn_revert, self.btn_save):
@@ -895,13 +903,14 @@ class MainWindow(QMainWindow):
             self._set_status(f"Couldn't write the KWin rule: {exc}", "error")
             return
         ok, info = kwinrules.reconfigure_kwin()
-        msg = f"Zone for “{e.name}” is active: {p.zone.w} × {p.zone.h} at {p.zone.x}, {p.zone.y}."
+        msg = f"Window zone set: {p.zone.w} × {p.zone.h} at {p.zone.x}, {p.zone.y}."
+        hint = " Start the game with its launch option below so the resolution matches."
         if conflicts:
             self._set_status(msg + f" Another KWin rule may conflict: {conflicts[0]}", "warn")
         elif not ok:
             self._set_status(msg + f" But KWin didn't reload ({info}).", "warn")
         else:
-            self._set_status(msg, "ok")
+            self._set_status(msg + hint, "ok")
 
     # ---- dialogs (separate methods so tests can stub them)
 

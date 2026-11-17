@@ -259,7 +259,14 @@ def cmd_run(args) -> int:
     outcome = _write_rule(args, s, label, kwin_rect)
     cmd = gamescope.full_command(gs_args, game, binary)
     shown = shlex.join(redact(cmd))
-    _log_run([f"run {label}: zone {kwin_rect}", f"  {outcome}", f"  exec: {shown}"])
+    lines = [f"run {label}: zone {kwin_rect}", f"  {outcome}"]
+    if any(os.path.basename(a) == "gamescope" for a in game):
+        nested = ("  WARNING: the launcher also starts its own gamescope inside gwa's. Turn off the "
+                  "launcher's Gamescope setting / remove its gamescope wrapper, or the game gets "
+                  "black bars and a capped resolution.")
+        lines.append(nested)
+        print(nested.strip(), file=sys.stderr)
+    _log_run([*lines, f"  exec: {shown}"])
     if "reconfigured" in outcome:
         time.sleep(RELOAD_SETTLE_SECONDS)
     print(f"exec: {shown}", flush=True)

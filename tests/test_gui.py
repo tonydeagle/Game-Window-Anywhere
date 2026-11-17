@@ -224,7 +224,8 @@ class GuiTests(unittest.TestCase):
         with mock.patch("gwa.gui.kwinrules.reconfigure_kwin", return_value=(True, "qdbus6")):
             w.apply_now()
         self.assertIn("position=880,0", self.rules.read_text())
-        self.assertIn("is active", w.status.text())
+        self.assertIn("Window zone set", w.status.text())
+        self.assertIn("launch option", w.status.text())
 
     def test_launch_options_follow_name(self):
         w = self.window()

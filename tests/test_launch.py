@@ -75,6 +75,16 @@ class RunWaitsAndLogs(unittest.TestCase):
         sleep.assert_not_called()
         self.assertEqual(execv.call_count, 2)
 
+    def test_nested_gamescope_is_flagged(self, sleep, _which, execv):
+        with mock.patch("gwa.cli.kwinrules.reconfigure_kwin", return_value=(True, "qdbus6")), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            cli.main(["run", "left", "--rules-file", str(self.dir / "kwinrulesrc"),
+                      "--presets-file", str(self.dir / "p.toml"), "--",
+                      "/usr/bin/gamescope", "-W", "1720", "--", "game.exe"])
+        self.assertIn("WARNING: the launcher also starts its own gamescope", self.log())
+        self.run_gwa()  # a normal launch adds no warning
+        self.assertEqual(self.log().count("WARNING"), 1)
+
     def test_log_records_outcome(self, sleep, _which, execv):
         self.run_gwa()
         self.run_gwa(reload_ok=False)

@@ -135,6 +135,13 @@ logged to `~/.cache/game-window-anywhere/run.log`: which preset, the zone, wheth
 and the exact gamescope command. If a game opens in the wrong place, that file is the first
 thing to check.
 
+**Black bars, or the game won't go above an old resolution?** The window was resized but gamescope
+wasn't. Usually the launcher still has an old fixed `gamescope -W …` launch option or wrapper, or
+Heroic's own Gamescope setting is on, so the game never goes through `gwa`. Replace it with the
+preset's launch option (shown in `gwa apply <preset>` and in the GUI) and turn Heroic's Gamescope
+setting off. If the launcher runs its own gamescope inside gwa's, `run.log` shows a warning.
+**Apply zone now** in the GUI (like `gwa apply`) only moves the window.
+
 `gwa run` waits about a second after KWin confirms the reload before starting gamescope.
 KWin applies rule changes on a short delay, and without the wait a game could open under the
 previous game's zone.
