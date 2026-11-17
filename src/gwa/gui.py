@@ -935,11 +935,24 @@ class MainWindow(QMainWindow):
             event.ignore()
 
 
+DESKTOP_ID = "game-window-anywhere"
+
+
+def _desktop_entry_installed() -> bool:
+    import os
+    home = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local/share")
+    dirs = [home, *(os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")]
+    return any(Path(d, "applications", f"{DESKTOP_ID}.desktop").is_file() for d in dirs if d)
+
+
 def main(presets_path: Path | None = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("Game Window Anywhere")
     app.setApplicationVersion(__version__)
-    app.setDesktopFileName("game-window-anywhere")
+    if _desktop_entry_installed():
+        # Lets Plasma show the right icon; claiming the ID without a .desktop file makes the
+        # portal log "App info not found", so only do it once the entry exists.
+        app.setDesktopFileName(DESKTOP_ID)
     app.setStyle("Fusion")  # consistent base for the blue theme on any Plasma style
     app.setStyleSheet(STYLE)
     win = MainWindow(presets_path)

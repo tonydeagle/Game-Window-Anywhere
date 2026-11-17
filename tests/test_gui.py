@@ -232,5 +232,17 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(w.launch.heroic_args.text(), "run rocketleague --")
 
 
+@unittest.skipIf(QApplication is None, "PySide6 not installed")
+class DesktopEntry(unittest.TestCase):
+    def test_only_claims_app_id_when_entry_exists(self):
+        with tempfile.TemporaryDirectory() as d, \
+             mock.patch.dict(os.environ, {"XDG_DATA_HOME": d, "XDG_DATA_DIRS": d + "/none"}):
+            self.assertFalse(gui._desktop_entry_installed())
+            apps = Path(d, "applications")
+            apps.mkdir()
+            (apps / "game-window-anywhere.desktop").write_text("[Desktop Entry]\n")
+            self.assertTrue(gui._desktop_entry_installed())
+
+
 if __name__ == "__main__":
     unittest.main()
