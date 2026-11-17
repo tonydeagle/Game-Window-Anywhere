@@ -59,6 +59,10 @@ def build_rule(rect: Rect, wmclass: str = "gamescope", label: str = "") -> dict[
         "sizerule": str(FORCE),
         "noborder": "true",
         "noborderrule": str(FORCE),
+        # Newer Plasma 6 releases replace noborder with decorationpolicy (and migrate
+        # old rules to it); write both so every version sees "no titlebar/frame".
+        "decorationpolicy": "none",
+        "decorationpolicyrule": str(FORCE),
         # Keep gamescope's own fullscreen toggle (Super+F) from escaping the zone.
         "fullscreen": "false",
         "fullscreenrule": str(FORCE),
@@ -244,14 +248,24 @@ _RECONFIGURE_CMDS = [
 ]
 
 
+# Set by Steam (overlay, runtime libraries) and inherited by anything a launch option runs;
+# they can break Qt tools such as qdbus6, so the reload call runs without them.
+_LAUNCHER_ENV_VARS = ("LD_PRELOAD", "LD_LIBRARY_PATH")
+
+
+def clean_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _LAUNCHER_ENV_VARS}
+
+
 def reconfigure_kwin() -> tuple[bool, str]:
     """Try each known D-Bus client; return (ok, command-or-error)."""
     errors = []
+    env = clean_env()
     for cmd in _RECONFIGURE_CMDS:
         if shutil.which(cmd[0]) is None:
             continue
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
         except (OSError, subprocess.TimeoutExpired) as e:
             errors.append(f"{cmd[0]}: {e}")
             continue

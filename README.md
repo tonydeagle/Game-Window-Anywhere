@@ -18,7 +18,7 @@ the launch option to paste into Steam or Heroic.
 
 - KDE Plasma 5.24+ or 6 (tested target: Plasma 6, Wayland)
 - `gamescope`
-- Python 3.9+ (standard library only)
+- Python 3.11+ (standard library only)
 - `qdbus6`, `qdbus` or `dbus-send` to reload KWin (one of them is almost always present)
 
 ## Install
@@ -60,6 +60,45 @@ To skip the launcher, `gwa run` writes the rule and then starts gamescope direct
 gwa run left -- ~/Games/SlayTheSpire/SlayTheSpire
 ```
 
+### Per-game presets
+
+Save a zone once per game, then refer to it by name anywhere you'd write `left` or `right`:
+
+```sh
+gwa save rocketleague right --width 2560
+gwa save spire left -- ~/Games/SlayTheSpire/SlayTheSpire   # optionally store the game command
+gwa list
+gwa apply rocketleague          # write the rule + print launch options
+gwa run spire                   # write the rule + launch the saved command
+gwa apply rocketleague --width 1920   # flags override the preset for this one time
+gwa save rl-small rocketleague --width 1920   # copy a preset with changes
+gwa delete spire
+```
+
+Presets live in `~/.config/game-window-anywhere/presets.toml`, a plain file you can also edit
+by hand. Only settings that differ from the defaults are stored.
+
+**Switch zones automatically per game.** Because a single KWin rule covers every gamescope
+window, the most recently applied zone is the one that's used. To have each game pick its own
+zone when it starts, let `gwa` run gamescope for it. `gwa apply <preset>` prints these lines
+with the full path filled in:
+
+```
+Steam launch option:   /path/to/gwa run rocketleague -- %command%
+Heroic wrapper:        Executable /path/to/gwa, Arguments: run rocketleague --
+```
+
+### Troubleshooting a launch
+
+When Steam or Heroic starts `gwa run`, its messages aren't shown anywhere, so each run is also
+logged to `~/.cache/game-window-anywhere/run.log`: which preset, the zone, whether KWin reloaded,
+and the exact gamescope command. If a game opens in the wrong place, that file is the first
+thing to check.
+
+`gwa run` waits about a second after KWin confirms the reload before starting gamescope.
+KWin applies rule changes on a short delay, and without the wait a game could open under the
+previous game's zone.
+
 ### Options
 
 | Option | Meaning |
@@ -89,13 +128,14 @@ gwa run left -- ~/Games/SlayTheSpire/SlayTheSpire
 
 | Setup | Result |
 |---|---|
-| KDE Plasma 6, Wayland, 3440x1440 ultrawide | `left` and `right` presets: window placed exactly, no frame |
-| Slay the Spire (native, Steam) | Works in both zones at 1720x1440 |
-| Rocket League | Works in both zones at 1720x1440, no noticeable input lag |
+| KDE Plasma 6, Wayland, 3440x1440 ultrawide | `left`/`right` and presets: window placed exactly, no frame |
+| Slay the Spire 2 (Steam, Steam Linux Runtime) | Works at 1720x1440 left; `gwa run spire -- %command%` launch option |
+| Rocket League (Heroic / Epic, via umu-run) | Works at 1720x1440 and 2560x1440 right, no noticeable input lag; Heroic wrapper `gwa run rocketleague --` |
+| Automatic switching | Launching the two games alternately (twice each) puts each in its own zone every time |
 | `vkcube` in nested gamescope | Lands in the zone; KWin reports class `gamescope` |
 
-Uneven splits (`--width`), `custom`, `center`, `--origin` and `--scale` have unit tests
-but haven't been tried on real hardware yet. Reports are welcome.
+`center`, `custom`, `--origin` and `--scale` have unit tests but haven't been tried on real
+hardware yet. Reports are welcome.
 
 ## Safety
 
@@ -108,7 +148,7 @@ but haven't been tried on real hardware yet. Reports are welcome.
 
 - There is one zone at a time, because every gamescope window has the class `gamescope`.
   Running two games in two zones at once would need per-instance window matching.
-- Planned: a small GUI, per-game saved presets, and monitor detection via `kscreen-doctor`.
+- Planned: a small GUI (on top of the presets file) and monitor detection via `kscreen-doctor`.
 
 ## Development
 
