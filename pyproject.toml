@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "game-window-anywhere"
-version = "0.2.0"
+version = "0.3.0"
 description = "Run games 'fullscreen' in a zone of your monitor on KDE Plasma (gamescope + KWin rules)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -18,5 +18,11 @@ classifiers = [
 [project.scripts]
 gwa = "gwa.cli:main"
 
+[project.optional-dependencies]
+gui = ["PySide6-Essentials>=6.5"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+gwa = ["assets/*.svg"]

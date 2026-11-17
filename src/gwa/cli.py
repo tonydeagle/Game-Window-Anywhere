@@ -12,9 +12,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, gamescope, kwinrules, presets
+from . import __version__, core, gamescope, kwinrules, presets
 from .presets import Settings
-from .zones import PRESETS, Rect, compute_zone, fits, parse_point, parse_rect, parse_size
+from .zones import PRESETS, Rect, compute_zone, parse_point, parse_rect, parse_size
 
 
 def _arg(fn):
@@ -115,21 +115,12 @@ def _settings(args) -> tuple[str, Settings, bool]:
 def _resolve(s: Settings) -> tuple[Rect, Rect, list[str]]:
     """Return (zone in physical px, kwin geometry in logical px, gamescope args)."""
     try:
-        zone = compute_zone(s.zone, s.screen, s.width, s.height, s.rect)
+        p = core.plan(s)
     except ValueError as e:
         _die(str(e))
-    if s.scale <= 0:
-        _die("scale must be positive")
-    if s.zone == "custom" and not fits(zone, s.screen):
-        print(f"warning: zone {zone} extends past the {s.screen[0]}x{s.screen[1]} screen",
-              file=sys.stderr)
-    kwin_rect = zone.scaled(s.scale).offset(*s.origin)
-    try:
-        extra = shlex.split(s.gamescope_args)
-    except ValueError as e:
-        _die(f"gamescope_args: {e}")
-    gs_args = gamescope.gamescope_args(zone.w, zone.h, s.render, extra)
-    return zone, kwin_rect, gs_args
+    for w in p.warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    return p.zone, p.kwin_rect, p.gamescope_args
 
 
 def _describe(s: Settings) -> str:
@@ -176,12 +167,10 @@ def _write_rule(args, s: Settings, label: str, kwin_rect: Rect, dry_run: bool = 
             print(f"{k}={v}")
         return "dry run"
 
-    cfg = kwinrules.KConfig.load(path)
-    for other in kwinrules.other_gamescope_rules(cfg, s.wmclass):
+    backup, conflicts = core.write_rule(s, label, kwin_rect, path)
+    for other in conflicts:
         print(f"warning: another KWin rule also matches '{s.wmclass}' and may conflict: {other}",
               file=sys.stderr)
-    kwinrules.upsert_rule(cfg, values)
-    backup = kwinrules.save(cfg, path)
     print(f"KWin rule written: {path}" + (f" (backup: {backup.name})" if backup else ""))
 
     if args.no_reconfigure:
@@ -225,14 +214,6 @@ def _log_run(lines: list[str]) -> None:
         pass
 
 
-def _self_command() -> str:
-    """Absolute path to this gwa, for launch options that call back into it."""
-    argv0 = Path(sys.argv[0])
-    if argv0.name == "gwa" and argv0.exists():
-        return str(argv0.resolve())
-    return shutil.which("gwa") or "gwa"
-
-
 def _print_launch_options(zone: Rect, gs_args: list[str], preset_name: str | None = None) -> None:
     exe, wrapper_args = gamescope.heroic_wrapper(gs_args)
     print()
@@ -248,11 +229,11 @@ def _print_launch_options(zone: Rect, gs_args: list[str], preset_name: str | Non
     print("Any other launcher / terminal:")
     print(f"  {shlex.join(['gamescope', *gs_args])} -- <game command>")
     if preset_name:
-        gwa = _self_command()
+        steam, exe, wrapper = core.preset_launch_options(preset_name)
         print()
         print(f"Or let gwa switch to the '{preset_name}' zone every time the game starts:")
-        print(f"  Steam:  {shlex.join([gwa, 'run', preset_name])} -- %command%")
-        print(f"  Heroic: Executable: {gwa}   Arguments: run {preset_name} --")
+        print(f"  Steam:  {steam}")
+        print(f"  Heroic: Executable: {exe}   Arguments: {wrapper}")
 
 
 # ---------------------------------------------------------------- commands
@@ -278,7 +259,14 @@ def cmd_run(args) -> int:
     outcome = _write_rule(args, s, label, kwin_rect)
     cmd = gamescope.full_command(gs_args, game, binary)
     shown = shlex.join(redact(cmd))
-    _log_run([f"run {label}: zone {kwin_rect}", f"  {outcome}", f"  exec: {shown}"])
+    lines = [f"run {label}: zone {kwin_rect}", f"  {outcome}"]
+    if any(os.path.basename(a) == "gamescope" for a in game):
+        nested = ("  WARNING: the launcher also starts its own gamescope inside gwa's. Turn off the "
+                  "launcher's Gamescope setting / remove its gamescope wrapper, or the game gets "
+                  "black bars and a capped resolution.")
+        lines.append(nested)
+        print(nested.strip(), file=sys.stderr)
+    _log_run([*lines, f"  exec: {shown}"])
     if "reconfigured" in outcome:
         time.sleep(RELOAD_SETTLE_SECONDS)
     print(f"exec: {shown}", flush=True)
@@ -333,6 +321,44 @@ def cmd_delete(args) -> int:
     del stored[args.name]
     presets.save(stored, _presets_path(args))
     print(f"Deleted preset '{args.name}'.")
+    return 0
+
+
+def cmd_gui(args) -> int:
+    try:
+        from . import gui
+    except ImportError as e:
+        _die(f"the GUI needs PySide6 ({e}).\n"
+             "  Arch:          sudo pacman -S pyside6\n"
+             "  Fedora:        sudo dnf install python3-pyside6\n"
+             "  Debian/Ubuntu: sudo apt install python3-pyside6.qtwidgets\n"
+             "  openSUSE:      sudo zypper install python3-pyside6\n"
+             "  or with pip:   pip install --user PySide6-Essentials")
+    return gui.main(args.presets_file)
+
+
+def cmd_install_desktop(args) -> int:
+    from . import desktop
+    if args.remove:
+        removed = desktop.uninstall()
+        if not removed:
+            print("No app-menu entry installed; nothing to do.")
+            return 0
+        for p in removed:
+            print(f"Removed {p}")
+    else:
+        gwa = core.gwa_executable()
+        if not Path(gwa).is_absolute():
+            _die("couldn't find the full path to gwa; run this as ./gwa install-desktop "
+                 "from your checkout, or install gwa on your PATH")
+        for p in desktop.install(gwa):
+            print(f"Installed {p}")
+        print(f"The menu entry runs: {gwa} gui")
+    tool = desktop.refresh_menu()
+    print("Plasma's app menu refreshed." if tool else
+          "The app menu will pick this up shortly (or after logging out and back in).")
+    if not args.remove:
+        print("\nIf you move this folder later, run install-desktop again.")
     return 0
 
 
@@ -413,6 +439,13 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("delete", parents=[pre], help="delete a saved preset")
     d.add_argument("name")
     d.set_defaults(func=cmd_delete)
+
+    g = sub.add_parser("gui", parents=[pre], help="open the preset editor window")
+    g.set_defaults(func=cmd_gui)
+
+    dk = sub.add_parser("install-desktop", help="add Game Window Anywhere to your app menu")
+    dk.add_argument("--remove", action="store_true", help="remove the app-menu entry and icon")
+    dk.set_defaults(func=cmd_install_desktop)
 
     rules = argparse.ArgumentParser(add_help=False)
     rules.add_argument("--rules-file", type=Path, default=None, help="path to kwinrulesrc")

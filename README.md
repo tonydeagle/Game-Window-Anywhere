@@ -60,6 +60,46 @@ To skip the launcher, `gwa run` writes the rule and then starts gamescope direct
 gwa run left -- ~/Games/SlayTheSpire/SlayTheSpire
 ```
 
+### GUI
+
+```sh
+gwa gui
+```
+
+A preset editor window with a blue theme. It has:
+
+- a list of your games
+- a live preview of your monitor with the zone drawn on it
+- a scrollable list of game sizes that fit your screen (half, two-thirds and one-third width,
+  then common resolutions), plus **Custom size…** for anything non-standard
+- Left / Center / Right / Custom positions
+- an optional lower render resolution for upscaling
+- the Steam and Heroic launch options, each with a Copy button
+- a short description under every setting
+
+To add it to your app menu (under **Games**, with its own icon), run once:
+
+```sh
+./gwa install-desktop            # from your checkout
+./gwa install-desktop --remove   # to take it out again
+```
+
+This only writes to `~/.local/share`, so no root is needed. If you move the checkout, run it again.
+
+Changes are kept until you click **Save** (Ctrl+S). Unsaved games show a • in the list, and
+closing the window asks whether to save, discard or cancel. **Apply zone now** writes the KWin
+rule straight away without launching anything.
+
+The GUI needs PySide6 (the CLI doesn't):
+
+| Distro | Install |
+|---|---|
+| Arch | `sudo pacman -S pyside6` |
+| Fedora | `sudo dnf install python3-pyside6` |
+| Debian / Ubuntu | `sudo apt install python3-pyside6.qtwidgets` |
+| openSUSE | `sudo zypper install python3-pyside6` |
+| pip | `pip install --user PySide6-Essentials` |
+
 ### Per-game presets
 
 Save a zone once per game, then refer to it by name anywhere you'd write `left` or `right`:
@@ -94,6 +134,13 @@ When Steam or Heroic starts `gwa run`, its messages aren't shown anywhere, so ea
 logged to `~/.cache/game-window-anywhere/run.log`: which preset, the zone, whether KWin reloaded,
 and the exact gamescope command. If a game opens in the wrong place, that file is the first
 thing to check.
+
+**Black bars, or the game won't go above an old resolution?** The window was resized but gamescope
+wasn't. Usually the launcher still has an old fixed `gamescope -W …` launch option or wrapper, or
+Heroic's own Gamescope setting is on, so the game never goes through `gwa`. Replace it with the
+preset's launch option (shown in `gwa apply <preset>` and in the GUI) and turn Heroic's Gamescope
+setting off. If the launcher runs its own gamescope inside gwa's, `run.log` shows a warning.
+**Apply zone now** in the GUI (like `gwa apply`) only moves the window.
 
 `gwa run` waits about a second after KWin confirms the reload before starting gamescope.
 KWin applies rule changes on a short delay, and without the wait a game could open under the
@@ -132,9 +179,11 @@ previous game's zone.
 | Slay the Spire 2 (Steam, Steam Linux Runtime) | Works at 1720x1440 left; `gwa run spire -- %command%` launch option |
 | Rocket League (Heroic / Epic, via umu-run) | Works at 1720x1440 and 2560x1440 right, no noticeable input lag; Heroic wrapper `gwa run rocketleague --` |
 | Automatic switching | Launching the two games alternately (twice each) puts each in its own zone every time |
+| GUI (`gwa gui`) | Presets edited and saved; left and center zones at 2560x1440 launched from Steam match the GUI |
+| App-menu entry (`gwa install-desktop`) | Shows under Games with its icon and opens the GUI |
 | `vkcube` in nested gamescope | Lands in the zone; KWin reports class `gamescope` |
 
-`center`, `custom`, `--origin` and `--scale` have unit tests but haven't been tried on real
+`custom`, `--origin` and `--scale` have unit tests but haven't been tried on real
 hardware yet. Reports are welcome.
 
 ## Safety
@@ -148,7 +197,7 @@ hardware yet. Reports are welcome.
 
 - There is one zone at a time, because every gamescope window has the class `gamescope`.
   Running two games in two zones at once would need per-instance window matching.
-- Planned: a small GUI (on top of the presets file) and monitor detection via `kscreen-doctor`.
+- Planned: monitor detection via `kscreen-doctor`.
 
 ## Development
 
