@@ -18,7 +18,7 @@ the launch option to paste into Steam or Heroic.
 
 - KDE Plasma 5.24+ or 6 (tested target: Plasma 6, Wayland)
 - `gamescope`
-- Python 3.9+ (standard library only)
+- Python 3.11+ (standard library only)
 - `qdbus6`, `qdbus` or `dbus-send` to reload KWin (one of them is almost always present)
 
 ## Install
@@ -58,6 +58,34 @@ To skip the launcher, `gwa run` writes the rule and then starts gamescope direct
 
 ```sh
 gwa run left -- ~/Games/SlayTheSpire/SlayTheSpire
+```
+
+### Per-game presets
+
+Save a zone once per game, then refer to it by name anywhere you'd write `left` or `right`:
+
+```sh
+gwa save rocketleague right --width 2560
+gwa save spire left -- ~/Games/SlayTheSpire/SlayTheSpire   # optionally store the game command
+gwa list
+gwa apply rocketleague          # write the rule + print launch options
+gwa run spire                   # write the rule + launch the saved command
+gwa apply rocketleague --width 1920   # flags override the preset for this one time
+gwa save rl-small rocketleague --width 1920   # copy a preset with changes
+gwa delete spire
+```
+
+Presets live in `~/.config/game-window-anywhere/presets.toml`, a plain file you can also edit
+by hand. Only settings that differ from the defaults are stored.
+
+**Switch zones automatically per game.** Because a single KWin rule covers every gamescope
+window, the most recently applied zone is the one that's used. To have each game pick its own
+zone when it starts, let `gwa` run gamescope for it. `gwa apply <preset>` prints these lines
+with the full path filled in:
+
+```
+Steam launch option:   /path/to/gwa run rocketleague -- %command%
+Heroic wrapper:        Executable /path/to/gwa, Arguments: run rocketleague --
 ```
 
 ### Options
@@ -108,7 +136,7 @@ but haven't been tried on real hardware yet. Reports are welcome.
 
 - There is one zone at a time, because every gamescope window has the class `gamescope`.
   Running two games in two zones at once would need per-instance window matching.
-- Planned: a small GUI, per-game saved presets, and monitor detection via `kscreen-doctor`.
+- Planned: a small GUI (on top of the presets file) and monitor detection via `kscreen-doctor`.
 
 ## Development
 
