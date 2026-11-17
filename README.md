@@ -179,9 +179,11 @@ previous game's zone.
 | Slay the Spire 2 (Steam, Steam Linux Runtime) | Works at 1720x1440 left; `gwa run spire -- %command%` launch option |
 | Rocket League (Heroic / Epic, via umu-run) | Works at 1720x1440 and 2560x1440 right, no noticeable input lag; Heroic wrapper `gwa run rocketleague --` |
 | Automatic switching | Launching the two games alternately (twice each) puts each in its own zone every time |
+| GUI (`gwa gui`) | Presets edited and saved; left and center zones at 2560x1440 launched from Steam match the GUI |
+| App-menu entry (`gwa install-desktop`) | Shows under Games with its icon and opens the GUI |
 | `vkcube` in nested gamescope | Lands in the zone; KWin reports class `gamescope` |
 
-`center`, `custom`, `--origin` and `--scale` have unit tests but haven't been tried on real
+`custom`, `--origin` and `--scale` have unit tests but haven't been tried on real
 hardware yet. Reports are welcome.
 
 ## Safety
