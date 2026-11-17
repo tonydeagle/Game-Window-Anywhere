@@ -330,6 +330,31 @@ def cmd_gui(args) -> int:
     return gui.main(args.presets_file)
 
 
+def cmd_install_desktop(args) -> int:
+    from . import desktop
+    if args.remove:
+        removed = desktop.uninstall()
+        if not removed:
+            print("No app-menu entry installed; nothing to do.")
+            return 0
+        for p in removed:
+            print(f"Removed {p}")
+    else:
+        gwa = core.gwa_executable()
+        if not Path(gwa).is_absolute():
+            _die("couldn't find the full path to gwa; run this as ./gwa install-desktop "
+                 "from your checkout, or install gwa on your PATH")
+        for p in desktop.install(gwa):
+            print(f"Installed {p}")
+        print(f"The menu entry runs: {gwa} gui")
+    tool = desktop.refresh_menu()
+    print("Plasma's app menu refreshed." if tool else
+          "The app menu will pick this up shortly (or after logging out and back in).")
+    if not args.remove:
+        print("\nIf you move this folder later, run install-desktop again.")
+    return 0
+
+
 def cmd_status(args) -> int:
     path = _rules_path(args)
     cfg = kwinrules.KConfig.load(path)
@@ -410,6 +435,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = sub.add_parser("gui", parents=[pre], help="open the preset editor window")
     g.set_defaults(func=cmd_gui)
+
+    dk = sub.add_parser("install-desktop", help="add Game Window Anywhere to your app menu")
+    dk.add_argument("--remove", action="store_true", help="remove the app-menu entry and icon")
+    dk.set_defaults(func=cmd_install_desktop)
 
     rules = argparse.ArgumentParser(add_help=False)
     rules.add_argument("--rules-file", type=Path, default=None, help="path to kwinrulesrc")

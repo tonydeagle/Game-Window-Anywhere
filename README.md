@@ -77,6 +77,15 @@ A preset editor window with a blue theme. It has:
 - the Steam and Heroic launch options, each with a Copy button
 - a short description under every setting
 
+To add it to your app menu (under **Games**, with its own icon), run once:
+
+```sh
+./gwa install-desktop            # from your checkout
+./gwa install-desktop --remove   # to take it out again
+```
+
+This only writes to `~/.local/share`, so no root is needed. If you move the checkout, run it again.
+
 Changes are kept until you click **Save** (Ctrl+S). Unsaved games show a • in the list, and
 closing the window asks whether to save, discard or cancel. **Apply zone now** writes the KWin
 rule straight away without launching anything.
@@ -179,7 +188,7 @@ hardware yet. Reports are welcome.
 
 - There is one zone at a time, because every gamescope window has the class `gamescope`.
   Running two games in two zones at once would need per-instance window matching.
-- Planned: monitor detection via `kscreen-doctor`, and an app-menu entry for the GUI.
+- Planned: monitor detection via `kscreen-doctor`.
 
 ## Development
 

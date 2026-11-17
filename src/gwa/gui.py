@@ -11,14 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPainter, QPen
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QDoubleSpinBox, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
     QPushButton, QScrollArea, QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import __version__, core, kwinrules, presets
+from . import __version__, core, desktop, kwinrules, presets
+from .desktop import DESKTOP_ID
 from .presets import Settings
 from .zones import Rect, compute_zone, size_choices
 
@@ -935,13 +936,9 @@ class MainWindow(QMainWindow):
             event.ignore()
 
 
-DESKTOP_ID = "game-window-anywhere"
-
-
 def _desktop_entry_installed() -> bool:
     import os
-    home = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local/share")
-    dirs = [home, *(os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")]
+    dirs = [desktop.data_home(), *(os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")]
     return any(Path(d, "applications", f"{DESKTOP_ID}.desktop").is_file() for d in dirs if d)
 
 
@@ -953,6 +950,7 @@ def main(presets_path: Path | None = None) -> int:
         # Lets Plasma show the right icon; claiming the ID without a .desktop file makes the
         # portal log "App info not found", so only do it once the entry exists.
         app.setDesktopFileName(DESKTOP_ID)
+    app.setWindowIcon(QIcon(str(desktop.ICON_SOURCE)))
     app.setStyle("Fusion")  # consistent base for the blue theme on any Plasma style
     app.setStyleSheet(STYLE)
     win = MainWindow(presets_path)

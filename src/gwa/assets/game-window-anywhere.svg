@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="zone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <!-- stand -->
+  <path d="M55 93h18l4 14H51z" fill="#2a4670"/>
+  <rect x="38" y="105" width="52" height="7" rx="3.5" fill="#3b5d8f"/>
+  <!-- ultrawide monitor -->
+  <rect x="6" y="26" width="116" height="69" rx="9" fill="#0c1626" stroke="#3b82f6" stroke-width="5"/>
+  <!-- game zone (left part of the screen) -->
+  <rect x="14" y="34" width="58" height="53" rx="5" fill="url(#zone)"/>
+  <!-- free area hint -->
+  <rect x="78" y="34" width="36" height="53" rx="5" fill="none" stroke="#2a4670" stroke-width="2.5" stroke-dasharray="5 4"/>
+  <!-- play mark -->
+  <path d="M36 49.5v22l19-11z" fill="#ffffff"/>
+</svg>
