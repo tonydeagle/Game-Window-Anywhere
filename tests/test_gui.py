@@ -234,6 +234,100 @@ class GuiTests(unittest.TestCase):
 
 
 @unittest.skipIf(QApplication is None, "PySide6 not installed")
+class GuiDetection(unittest.TestCase):
+    """GUI with the author's setup: one 3440x1440 monitor and a 46 px bottom panel."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        from gwa.monitors import Live, Monitor, Panel
+        cls.live = Live([Monitor("DP-1", 3440, 1440, refresh=240.0, primary=True)],
+                        [Panel(0, "bottom", 46, "none", 0)])
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        self.pf, self.rules = d / "presets.toml", d / "kwinrulesrc"
+        env = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(d / "cache")})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def window(self, stored):
+        presets.save(stored, self.pf)
+        w = gui.MainWindow(self.pf, self.rules, live=self.live)
+        self.addCleanup(w.deleteLater)
+        return w
+
+    def test_every_new_option_round_trips_without_becoming_dirty(self):
+        w = self.window({
+            "a": Settings(zone="left"),
+            "b": Settings(zone="left", monitor="primary", taskbar="fit"),
+            "c": Settings(zone="right", width=2560, monitor="DP-1", taskbar="cover"),
+            "d": Settings(zone="center", width=1920, height=1080, monitor="primary", taskbar="autohide"),
+            "e": Settings(zone="left", monitor="DP-9", screen=(2560, 1440)),
+        })
+        for row in range(5):
+            w.list.setCurrentRow(row)
+            self.assertFalse(w.is_dirty(), (row, w.change_summary()))
+
+    def test_monitor_dropdown(self):
+        w = self.window({"a": Settings(zone="left"), "e": Settings(zone="left", monitor="DP-9")})
+        box = w.editor.monitor_box
+        self.assertEqual(box.currentData(), "")  # existing preset without a monitor: Manual
+        self.assertTrue(w.editor.manual_screen.isVisibleTo(w.editor))
+        self.assertEqual(box.itemText(0), "Primary monitor  (DP-1 · 3440 × 1440 · 240 Hz)")
+        w.list.setCurrentRow(1)
+        self.assertEqual(box.currentText(), "DP-9  (not connected)")
+        self.assertIn("Not connected right now", w.editor.monitor_note.text())
+
+    def test_new_game_follows_primary_and_fit_shrinks_sizes(self):
+        w = self.window({})
+        w.new_preset()
+        ed = w.editor
+        self.assertEqual(ed.monitor_box.currentData(), "primary")
+        self.assertFalse(ed.origin_x.isEnabled())
+        self.assertIn("bottom panel, 46 px, always visible", ed.taskbar_note.text())
+        ed.taskbar_buttons["fit"].setChecked(True)
+        sizes = [ed.sizes.item(i).data(gui.Qt.UserRole) for i in range(ed.sizes.count())]
+        self.assertIn((1720, 1394), sizes)
+        self.assertEqual(ed._size(), (1720, 1394))
+        self.assertEqual(w.preview.zone, Rect(0, 0, 1720, 1394))
+        self.assertEqual(w.preview.panels, (0, 0, 0, 46))
+        self.assertTrue(w.save())
+        self.assertEqual(tomllib.loads(self.pf.read_text())["new-game"],
+                         {"zone": "left", "monitor": "primary", "taskbar": "fit"})
+
+    def test_switching_to_manual_and_back(self):
+        w = self.window({"a": Settings(zone="left", monitor="primary")})
+        ed = w.editor
+        ed.monitor_box.setCurrentIndex(ed.monitor_box.findData(""))
+        self.assertTrue(ed.origin_x.isEnabled())
+        self.assertTrue(w.save())
+        self.assertEqual(tomllib.loads(self.pf.read_text())["a"], {"zone": "left"})
+
+    def test_cover_writes_layer_rule_on_apply(self):
+        w = self.window({"rl": Settings(zone="right", width=2560, monitor="primary", taskbar="cover")})
+        with mock.patch("gwa.gui.kwinrules.reconfigure_kwin", return_value=(True, "qdbus6")):
+            w.apply_now()
+        rule = self.rules.read_text()
+        self.assertIn("layer=fullscreen", rule)
+        self.assertIn("size=2560,1440", rule)
+
+    def test_stale_autohide_is_restored_on_startup(self):
+        from gwa import taskbar
+        from gwa.monitors import Panel
+        with mock.patch("gwa.taskbar._alive", return_value=True):
+            taskbar.begin([Panel(0, "bottom", 46, "none")], 999999, lambda m: None)
+        calls = []
+        with mock.patch("gwa.taskbar.mon.set_panel_hiding", side_effect=calls.append), \
+             mock.patch("gwa.taskbar._alive", return_value=False):
+            w = self.window({})
+        self.assertEqual(calls, [{0: "none"}])
+        self.assertIn("Restored the taskbar", w.status.text())
+
+
+@unittest.skipIf(QApplication is None, "PySide6 not installed")
 class DesktopEntry(unittest.TestCase):
     def test_only_claims_app_id_when_entry_exists(self):
         with tempfile.TemporaryDirectory() as d, \

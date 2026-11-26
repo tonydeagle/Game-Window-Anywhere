@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Stand-in for qdbus6 talking to plasmashell's evaluateScript.
+
+Panels live in $FAKE_PANELS (JSON list of {location, thickness, hiding, screen, geometry});
+the panel-listing script gets them back as JSON, `ps[i].hiding = "..."` lines change them.
+Every script is appended to $FAKE_PANELS.log.
+"""
+import json, os, re, sys
+args = sys.argv[1:]
+if args[:3] != ["org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript"]:
+    sys.exit(f"fake qdbus6: unsupported call {args[:3]}")
+script, path = args[3], os.environ["FAKE_PANELS"]
+with open(path + ".log", "a") as log:
+    log.write(script.strip().replace("\n", " ") + "\n")
+panels = json.load(open(path))
+if "JSON.stringify" in script:
+    print(json.dumps([{**p, "index": i} for i, p in enumerate(panels)]))
+for i, mode in re.findall(r'ps\[(\d+)\]\.hiding = "(\w+)"', script):
+    panels[int(i)]["hiding"] = mode
+json.dump(panels, open(path, "w"))
