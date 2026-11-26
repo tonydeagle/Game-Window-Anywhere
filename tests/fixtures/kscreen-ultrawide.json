@@ -1,0 +1,105 @@
+{
+    "outputs": [
+        {
+            "brightness": 0.7,
+            "clones": [],
+            "connected": true,
+            "currentModeId": "2",
+            "enabled": true,
+            "followPreferredMode": false,
+            "hdr": false,
+            "icon": "",
+            "id": 1,
+            "modes": [
+                {
+                    "id": "1",
+                    "name": "3440x1440@60",
+                    "refreshRate": 59.972999572753906,
+                    "size": {
+                        "height": 1440,
+                        "width": 3440
+                    }
+                },
+                {
+                    "id": "2",
+                    "name": "3440x1440@240",
+                    "refreshRate": 239.99899291992188,
+                    "size": {
+                        "height": 1440,
+                        "width": 3440
+                    }
+                },
+                {
+                    "id": "3",
+                    "name": "3440x1440@165",
+                    "refreshRate": 164.99200439453125,
+                    "size": {
+                        "height": 1440,
+                        "width": 3440
+                    }
+                },
+                {
+                    "id": "6",
+                    "name": "2560x1440@120",
+                    "refreshRate": 119.99800109863281,
+                    "size": {
+                        "height": 1440,
+                        "width": 2560
+                    }
+                },
+                {
+                    "id": "8",
+                    "name": "1920x1080@120",
+                    "refreshRate": 120,
+                    "size": {
+                        "height": 1080,
+                        "width": 1920
+                    }
+                }
+            ],
+            "name": "DP-1",
+            "overscan": 0,
+            "pos": {
+                "x": 0,
+                "y": 0
+            },
+            "preferredModes": [
+                "1"
+            ],
+            "priority": 1,
+            "replicationSource": 0,
+            "rgbRange": 0,
+            "rotation": 1,
+            "scale": 1,
+            "sdr-brightness": 253,
+            "size": {
+                "height": 1440,
+                "width": 3440
+            },
+            "sizeMM": {
+                "height": 337,
+                "width": 800
+            },
+            "type": 14,
+            "wcg": false
+        }
+    ],
+    "screen": {
+        "currentSize": {
+            "height": 1440,
+            "width": 3440
+        },
+        "id": 0,
+        "maxActiveOutputsCount": 1,
+        "maxSize": {
+            "height": 64000,
+            "width": 64000
+        },
+        "minSize": {
+            "height": 0,
+            "width": 0
+        }
+    },
+    "tabletModeAvailable": false,
+    "tabletModeEngaged": false
+}

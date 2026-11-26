@@ -13,13 +13,15 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QDoubleSpinBox, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame,
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QMessageBox, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSpinBox, QToolButton,
+    QVBoxLayout, QWidget,
 )
 
-from . import __version__, core, desktop, kwinrules, presets
+from . import __version__, core, desktop, kwinrules, monitors, presets, taskbar
 from .desktop import DESKTOP_ID
+from .monitors import Live, Monitor
 from .presets import Settings
 from .zones import Rect, compute_zone, size_choices
 
@@ -42,6 +44,7 @@ C = {
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 _UP, _DOWN = (ASSETS / "arrow-up.svg").as_posix(), (ASSETS / "arrow-down.svg").as_posix()
+_RADIO_ON, _RADIO_OFF = (ASSETS / "radio-on.svg").as_posix(), (ASSETS / "radio-off.svg").as_posix()
 
 STYLE = f"""
 QWidget {{ color: {C['text']}; }}
@@ -102,7 +105,19 @@ QPushButton[class="primary"] {{ background: {C['accent']}; border-color: {C['acc
 QPushButton[class="primary"]:hover {{ background: {C['accent_hi']}; }}
 QPushButton[class="primary"]:disabled {{ background: #22385a; color: #6b84a5; }}
 QToolButton {{ border: none; background: transparent; color: {C['accent_hi']}; font-weight: 600; padding: 2px 0; }}
-QCheckBox {{ spacing: 8px; }}
+QCheckBox, QRadioButton {{ spacing: 8px; }}
+QRadioButton {{ font-weight: 600; }}
+QRadioButton::indicator {{ width: 16px; height: 16px; image: url("{_RADIO_OFF}"); }}
+QRadioButton::indicator:checked {{ image: url("{_RADIO_ON}"); }}
+QComboBox {{
+    background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 6px;
+    padding: 5px 10px; min-width: 260px;
+}}
+QComboBox:hover, QComboBox:focus {{ border-color: {C['accent_hi']}; }}
+QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 26px; border: none; }}
+QComboBox::down-arrow {{ image: url("{_DOWN}"); width: 10px; height: 10px; }}
+QComboBox QAbstractItemView {{ background: {C['panel2']}; border: 1px solid {C['border']};
+    selection-background-color: {C['accent']}; outline: none; padding: 4px; }}
 #previewBar {{ background: {C['panel']}; border: 1px solid {C['border']}; border-radius: 10px; }}
 QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 4px;
     border: 1px solid {C['border']}; background: {C['panel2']}; }}
@@ -191,10 +206,30 @@ class MonitorPreview(QWidget):
         self.screen = (3440, 1440)
         self.zone: Rect | None = None
         self.error = ""
+        self.panels: tuple[int, int, int, int] = (0, 0, 0, 0)  # always-visible panel insets
+        self.taskbar = "leave"
+        self.caption = ""
 
-    def show_zone(self, screen: tuple[int, int], zone: Rect | None, error: str = "") -> None:
+    def show_zone(self, screen: tuple[int, int], zone: Rect | None, error: str = "",
+                  panels: tuple[int, int, int, int] = (0, 0, 0, 0), taskbar_mode: str = "leave",
+                  caption: str = "") -> None:
         self.screen, self.zone, self.error = screen, zone, error
+        self.panels, self.taskbar, self.caption = panels, taskbar_mode, caption
         self.update()
+
+    def _draw_panels(self, p: QPainter, mx: float, my: float, mw: float, mh: float, k: float,
+                     faded: bool) -> None:
+        # Panels are thin next to a 1440 px monitor; keep them visible in the small preview.
+        l, t, r, b = (max(v * k, 6) if v else 0 for v in self.panels)
+        strips = [QRectF(mx, my + mh - b, mw, b), QRectF(mx, my, mw, t),
+                  QRectF(mx, my, l, mh), QRectF(mx + mw - r, my, r, mh)]
+        colour = QColor("#c7d6ea")
+        colour.setAlpha(70 if faded else 200)
+        p.setPen(Qt.NoPen if not faded else QPen(QColor(C["muted"]), 1, Qt.DashLine))
+        p.setBrush(colour)
+        for strip in strips:
+            if strip.width() > 0 and strip.height() > 0:
+                p.drawRect(strip.adjusted(1, 1, -1, -1))
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
@@ -210,6 +245,10 @@ class MonitorPreview(QWidget):
         p.setBrush(QColor("#08101c"))
         p.drawRoundedRect(monitor, 6, 6)
 
+        # fit/autohide: panels drawn first (no overlap / hidden while playing).
+        if self.taskbar in ("fit", "autohide"):
+            self._draw_panels(p, mx, my, mw, mh, k, faded=self.taskbar == "autohide")
+
         if self.zone is not None:
             z = self.zone
             zr = QRectF(mx + z.x * k, my + z.y * k, z.w * k, z.h * k).adjusted(1.5, 1.5, -1.5, -1.5)
@@ -224,6 +263,18 @@ class MonitorPreview(QWidget):
             p.setFont(f)
             p.drawText(zr, Qt.AlignCenter, f"{z.w} × {z.h}\nat {z.x}, {z.y}")
 
+        if self.taskbar == "leave":  # an always-visible panel is drawn over the game
+            self._draw_panels(p, mx, my, mw, mh, k, faded=False)
+        elif self.taskbar == "cover":
+            p.save()
+            p.setClipRect(monitor)
+            if self.zone is not None:  # panel visible only outside the game's zone
+                path_zone = QRectF(mx + self.zone.x * k, my + self.zone.y * k, self.zone.w * k, self.zone.h * k)
+                from PySide6.QtGui import QRegion
+                p.setClipRegion(QRegion(monitor.toRect()).subtracted(QRegion(path_zone.toRect())))
+            self._draw_panels(p, mx, my, mw, mh, k, faded=False)
+            p.restore()
+
         p.setFont(self.font())
         caption = QRectF(0, my + mh + 6, self.width(), 22)
         if self.error:
@@ -231,7 +282,7 @@ class MonitorPreview(QWidget):
             p.drawText(caption, Qt.AlignCenter, self.error)
         else:
             p.setPen(QColor(C["muted"]))
-            p.drawText(caption, Qt.AlignCenter, f"Monitor {sw} × {sh}")
+            p.drawText(caption, Qt.AlignCenter, self.caption or f"Monitor {sw} × {sh}")
         p.end()
 
 
@@ -269,9 +320,19 @@ class Editor(QWidget):
 
         # -- zone
         zone = Card("Zone", "Where the game appears on your monitor and how big it is.")
+        self.monitor_box = QComboBox()
+        self.refresh_btn = QPushButton("Detect again")
+        self.refresh_btn.setToolTip("Look for monitors and taskbars again, e.g. after plugging one in.")
         self.screen_w, self.screen_h = _spin(320, 15360), _spin(240, 8640)
-        zone.field("Monitor resolution", "Your monitor's full resolution.",
-                   _row(self.screen_w, "×", self.screen_h))
+        self.manual_screen = QWidget()
+        ms = _row("Resolution", self.screen_w, "×", self.screen_h)
+        ms.setContentsMargins(0, 4, 0, 0)
+        self.manual_screen.setLayout(ms)
+        self.monitor_note = _label("", "desc", wrap=True)
+        zone.field("Monitor",
+                   "Which monitor the game goes on. gwa reads its resolution, position and scale "
+                   "each time the game starts. Choose Manual to type a resolution yourself.",
+                   _row(self.monitor_box, self.refresh_btn), self.manual_screen, self.monitor_note)
 
         self.pos_group = QButtonGroup(self)
         self.pos_buttons: dict[str, QPushButton] = {}
@@ -307,6 +368,38 @@ class Editor(QWidget):
                    "“Custom size…” at the bottom for anything else.", self.sizes, self.custom_size)
         lay.addWidget(zone)
 
+        # -- taskbar
+        tb = Card("Taskbar", "What happens to your Plasma panel while this game runs.")
+        self.taskbar_group = QButtonGroup(self)
+        self.taskbar_buttons: dict[str, QRadioButton] = {}
+        choices = [
+            ("leave", "Leave as is",
+             "Nothing changes. An always-visible taskbar may cover the bottom of the game."),
+            ("fit", "Fit the game above the taskbar",
+             "The zone gets shorter by the taskbar's height, so nothing overlaps and the taskbar "
+             "stays visible everywhere."),
+            ("autohide", "Auto-hide the taskbar while playing",
+             "The taskbar hides across the whole monitor when the game starts and comes back when "
+             "it closes. Needs the game started with its launch option."),
+            ("cover", "Game covers the taskbar in its zone",
+             "Like real fullscreen: the game sits on top of the taskbar, which stays visible next "
+             "to it. Needs a recent Plasma 6 (KWin's Layer rule)."),
+        ]
+        for key, title, desc in choices:
+            rb = QRadioButton(title)
+            self.taskbar_group.addButton(rb)
+            self.taskbar_buttons[key] = rb
+            box = QVBoxLayout()
+            box.setSpacing(2)
+            box.addWidget(rb)
+            d = _label(desc, "desc", wrap=True)
+            d.setContentsMargins(26, 0, 0, 0)
+            box.addWidget(d)
+            tb.body.addLayout(box)
+        self.taskbar_note = _label("", "desc", wrap=True)
+        tb.body.addWidget(self.taskbar_note)
+        lay.addWidget(tb)
+
         # -- performance
         perf = Card("Performance")
         self.render_on = QCheckBox("Render at a lower resolution")
@@ -334,7 +427,8 @@ class Editor(QWidget):
         self.origin_x, self.origin_y = _spin(-30000, 30000), _spin(-30000, 30000)
         self.advanced.field("Monitor position in desktop layout",
                             "Only for multiple monitors: where this monitor's top-left corner is "
-                            "in System Settings → Display Configuration.",
+                            "in System Settings → Display Configuration. Filled in automatically "
+                            "when a detected monitor is selected.",
                             _row("X", self.origin_x, "Y", self.origin_y))
         self.scale = QDoubleSpinBox()
         self.scale.setRange(0.5, 4.0)
@@ -343,7 +437,8 @@ class Editor(QWidget):
         self.scale.setMinimumWidth(110)
         self.advanced.field("Display scale",
                             "Match your scaling in System Settings → Display Configuration "
-                            "(1.25 means 125%).", _row(self.scale))
+                            "(1.25 means 125%). Filled in automatically for a detected monitor.",
+                            _row(self.scale))
         self.wmclass = QLineEdit()
         self.advanced.field("Window class",
                             "The window KWin moves. Leave as gamescope unless you know you need "
@@ -360,10 +455,16 @@ class Editor(QWidget):
         for w in (self.pos_x, self.pos_y, self.custom_w, self.custom_h, self.render_w,
                   self.render_h, self.origin_x, self.origin_y, self.scale):
             w.valueChanged.connect(self._edited)
-        self.pos_group.buttonToggled.connect(lambda _b, on: on and self._edited())
+        self.pos_group.buttonToggled.connect(lambda _b, on: on and self._area_changed())
         self.sizes.currentItemChanged.connect(lambda *_: self._edited())
         self.render_on.toggled.connect(self._edited)
         self.adv_toggle.toggled.connect(self._toggle_advanced)
+        self.monitor_box.currentIndexChanged.connect(self._monitor_changed)
+        self.taskbar_group.buttonToggled.connect(lambda _b, on: on and self._area_changed())
+
+        self.live = Live()
+        # screen/origin/scale stored with the preset: kept as a fallback while following a monitor
+        self._fallback: tuple[tuple[int, int], tuple[int, int], float] = ((3440, 1440), (0, 0), 1.0)
 
     # ---- helpers
 
@@ -373,6 +474,107 @@ class Editor(QWidget):
 
     def _screen(self) -> tuple[int, int]:
         return self.screen_w.value(), self.screen_h.value()
+
+    def _monitor_choice(self) -> str:
+        return self.monitor_box.currentData() or ""
+
+    def _monitor(self) -> Monitor | None:
+        return self.live.find(self._monitor_choice())
+
+    def _taskbar(self) -> str:
+        for key, b in self.taskbar_buttons.items():
+            if b.isChecked():
+                return key
+        return "leave"
+
+    def panel_insets(self) -> tuple[int, int, int, int]:
+        """Space taken by always-visible panels on the chosen monitor (physical px)."""
+        if self.live.panel_error:
+            return (0, 0, 0, 0)
+        return monitors.insets(self.live.panels_on(self._monitor()), self.scale.value())
+
+    def _insets(self) -> tuple[int, int, int, int]:
+        """Insets the zone must respect: only for 'fit' with a non-custom position."""
+        if self._taskbar() != "fit" or self._position() == "custom":
+            return (0, 0, 0, 0)
+        return self.panel_insets()
+
+    def _area(self) -> tuple[int, int]:
+        sw, sh = self._screen()
+        l, t, r, b = self._insets()
+        return sw - l - r, sh - t - b
+
+    def _fill_monitors(self, wanted: str) -> None:
+        self.monitor_box.blockSignals(True)
+        self.monitor_box.clear()
+        if self.live.monitors:
+            primary = self.live.find("primary")
+            self.monitor_box.addItem(f"Primary monitor  ({primary.label()})", "primary")
+            if len(self.live.monitors) > 1:
+                for m in self.live.monitors:
+                    self.monitor_box.addItem(m.label(), m.name)
+        if wanted and wanted != "primary" and self.monitor_box.findData(wanted) < 0:
+            self.monitor_box.addItem(f"{wanted}  (not connected)", wanted)
+        if wanted == "primary" and self.monitor_box.findData("primary") < 0:
+            self.monitor_box.addItem("Primary monitor  (not detected)", "primary")
+        self.monitor_box.addItem("Manual", "")
+        idx = self.monitor_box.findData(wanted)
+        if wanted and self.live.monitors and wanted != "primary" and len(self.live.monitors) == 1 \
+                and self.live.find(wanted) is not None:
+            idx = self.monitor_box.findData("primary") if idx < 0 else idx
+        self.monitor_box.setCurrentIndex(idx if idx >= 0 else self.monitor_box.count() - 1)
+        self.monitor_box.blockSignals(False)
+
+    def _apply_monitor_values(self) -> None:
+        """Show the followed monitor's live values in the screen/origin/scale fields."""
+        m = self._monitor()
+        follow = bool(self._monitor_choice())
+        if m is not None:
+            self.screen_w.setValue(m.width)
+            self.screen_h.setValue(m.height)
+            self.origin_x.setValue(m.x)
+            self.origin_y.setValue(m.y)
+            self.scale.setValue(m.scale)
+        elif follow:  # followed monitor not connected: show the stored fallback
+            (sw, sh), (ox, oy), sc = self._fallback
+            self.screen_w.setValue(sw)
+            self.screen_h.setValue(sh)
+            self.origin_x.setValue(ox)
+            self.origin_y.setValue(oy)
+            self.scale.setValue(sc)
+        self.manual_screen.setVisible(not follow)
+        for w in (self.origin_x, self.origin_y, self.scale):
+            w.setEnabled(not follow)
+        if not follow:
+            note = ""
+        elif m is None:
+            note = (f"Not connected right now: using the stored {self._fallback[0][0]} × "
+                    f"{self._fallback[0][1]} until it is.")
+        else:
+            x, y, _, _ = m.logical
+            note = f"Detected: {m.width} × {m.height} at {x}, {y}, scale {m.scale:g}."
+        if self.live.monitor_error and not self.live.monitors:
+            note = f"Couldn't detect monitors ({self.live.monitor_error}). Using Manual."
+        self.monitor_note.setText(note)
+        self.monitor_note.setVisible(bool(note))
+
+    def _update_taskbar_note(self) -> None:
+        if self.live.panel_error:
+            text = f"Couldn't detect the taskbar ({self.live.panel_error})."
+        else:
+            panels = self.live.panels_on(self._monitor())
+            modes = {"none": "always visible", "autohide": "auto-hide", "dodgewindows": "dodge windows"}
+            if panels:
+                text = "Detected: " + "; ".join(
+                    f"{p.location} panel, {p.thickness} px, {modes.get(p.hiding, p.hiding)}" for p in panels)
+            else:
+                text = "No panels detected on this monitor."
+            if self._taskbar() == "fit" and self._position() == "custom":
+                text += " “Fit” doesn't apply to a custom position."
+        self.taskbar_note.setText(text)
+
+    def set_live(self, live: Live) -> None:
+        self.live = live
 
     def _position(self) -> str:
         for key, b in self.pos_buttons.items():
@@ -390,7 +592,7 @@ class Editor(QWidget):
         self.sizes.blockSignals(True)
         self.sizes.clear()
         target = None
-        for c in size_choices(self._screen()):
+        for c in size_choices(self._area()):
             it = QListWidgetItem(f"{c.w} × {c.h}     {c.note}")
             it.setData(Qt.UserRole, (c.w, c.h))
             self.sizes.addItem(it)
@@ -413,8 +615,9 @@ class Editor(QWidget):
     def _sync_widgets(self) -> None:
         """Visibility and ranges that depend on other fields."""
         sw, sh = self._screen()
-        self.custom_w.setMaximum(sw)
-        self.custom_h.setMaximum(sh)
+        aw, ah = self._area()
+        self.custom_w.setMaximum(aw)
+        self.custom_h.setMaximum(ah)
         item = self.sizes.currentItem()
         self.custom_size.setVisible(bool(item) and item.data(Qt.UserRole) is None)
         custom_pos = self._position() == "custom"
@@ -425,6 +628,29 @@ class Editor(QWidget):
         self.render_row.setEnabled(self.render_on.isChecked())
         self.render_w.setMaximum(w)
         self.render_h.setMaximum(h)
+        self._update_taskbar_note()
+
+    def _monitor_changed(self) -> None:
+        if self._loading:
+            return
+        m = self._monitor()
+        if m is not None:  # newly chosen monitor becomes the stored fallback too
+            self._fallback = (m.size, (m.x, m.y), m.scale)
+        self._loading = True
+        self._apply_monitor_values()
+        self._loading = False
+        self._area_changed()
+
+    def _area_changed(self) -> None:
+        """Screen or usable area changed: rebuild the size list, keeping the size if it still fits."""
+        if self._loading:
+            return
+        self._loading = True
+        w, h = self._size()
+        aw, ah = self._area()
+        self._fill_sizes((min(w, aw), min(h, ah)))
+        self._loading = False
+        self._edited()
 
     def _screen_changed(self) -> None:
         if self._loading:
@@ -449,13 +675,20 @@ class Editor(QWidget):
         try:
             self.name.setText(name)
             self.command.setText(shlex.join(s.command) if s.command else "")
+            self._fallback = (s.screen, s.origin, s.scale)
             self.screen_w.setValue(s.screen[0])
             self.screen_h.setValue(s.screen[1])
-            try:
-                z = compute_zone(s.zone, s.screen, s.width, s.height, s.rect)
-            except ValueError:
-                z = compute_zone("left", s.screen)
+            self.origin_x.setValue(s.origin[0])
+            self.origin_y.setValue(s.origin[1])
+            self.scale.setValue(s.scale)
+            self._fill_monitors(s.monitor)
+            self._apply_monitor_values()
+            self.taskbar_buttons.get(s.taskbar, self.taskbar_buttons["leave"]).setChecked(True)
             self.pos_buttons.get(s.zone, self.pos_buttons["left"]).setChecked(True)
+            try:
+                z = core.plan(s, self.live).zone
+            except ValueError:
+                z = compute_zone("left", self._area())
             self.pos_x.setMaximum(15360)
             self.pos_y.setMaximum(8640)
             self.pos_x.setValue(z.x)
@@ -468,9 +701,6 @@ class Editor(QWidget):
             self.render_w.setValue(rw)
             self.render_h.setValue(rh)
             self.extra.setText(s.gamescope_args)
-            self.origin_x.setValue(s.origin[0])
-            self.origin_y.setValue(s.origin[1])
-            self.scale.setValue(s.scale)
             self.wmclass.setText(s.wmclass)
             self._sync_widgets()
         finally:
@@ -479,29 +709,38 @@ class Editor(QWidget):
     def read(self) -> tuple[str, Settings]:
         """Current form as (name, Settings). Raises ValueError with a user-facing message."""
         name = self.name.text().strip()
-        sw, sh = self._screen()
+        aw, ah = self._area()
         w, h = self._size()
         pos = self._position()
         if pos == "custom":
             geo = dict(zone="custom", rect=Rect(self.pos_x.value(), self.pos_y.value(), w, h))
         else:
-            # Keep presets tidy: the defaults (half width, full height) aren't stored.
-            geo = dict(zone=pos, width=None if w == sw // 2 else w, height=None if h == sh else h)
+            # Keep presets tidy: the defaults (half the usable width, full usable height) aren't stored.
+            geo = dict(zone=pos, width=None if w == aw // 2 else w, height=None if h == ah else h)
+        monitor = self._monitor_choice()
+        if monitor:  # following a monitor: keep the stored fallback values
+            screen, origin, scale = self._fallback
+        else:
+            screen = self._screen()
+            origin = (self.origin_x.value(), self.origin_y.value())
+            scale = round(self.scale.value(), 2)
         try:
             command = tuple(shlex.split(self.command.text()))
         except ValueError as e:
             raise ValueError(f"Game command: {e}") from None
         s = Settings(
-            screen=(sw, sh),
-            origin=(self.origin_x.value(), self.origin_y.value()),
-            scale=round(self.scale.value(), 2),
+            screen=screen,
+            origin=origin,
+            scale=scale,
+            monitor=monitor,
+            taskbar=self._taskbar(),
             render=(self.render_w.value(), self.render_h.value()) if self.render_on.isChecked() else None,
             gamescope_args=self.extra.text().strip(),
             wmclass=self.wmclass.text().strip() or "gamescope",
             command=command,
             **geo,
         )
-        core.plan(s)  # raises ValueError for anything gwa couldn't use
+        core.plan(s, self.live)  # raises ValueError for anything gwa couldn't use
         return name, s
 
     def show_name_error(self, msg: str) -> None:
@@ -582,10 +821,12 @@ class Entry:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, presets_path: Path | None = None, rules_path: Path | None = None):
+    def __init__(self, presets_path: Path | None = None, rules_path: Path | None = None,
+                 live: Live | None = None):
         super().__init__()
         self.presets_path = presets_path or presets.default_path()
         self.rules_path = rules_path or kwinrules.default_path()
+        self.live = live if live is not None else monitors.detect()
         self.entries: list[Entry] = []
         self.saved: dict[str, Settings] = {}
         self.deleted: set[str] = set()
@@ -696,8 +937,11 @@ class MainWindow(QMainWindow):
         self.btn_save.clicked.connect(self.save)
         self.btn_revert.clicked.connect(self.revert)
         self.btn_apply.clicked.connect(self.apply_now)
+        self.editor.set_live(self.live)
+        self.editor.refresh_btn.clicked.connect(self.redetect)
 
         self._load_from_disk()
+        self._restore_stale_taskbar()
 
     # ---- state
 
@@ -802,12 +1046,20 @@ class MainWindow(QMainWindow):
             name_err = f"Another game is already called '{e.name}'."
         self.editor.show_name_error(name_err)
 
+        panels = self.editor.panel_insets()
         if e.error:
-            self.preview.show_zone(e.settings.screen, None, e.error)
+            self.preview.show_zone(self.editor._screen(), None, e.error, panels, self.editor._taskbar())
             self._set_status(e.error, "error")
         else:
-            p = core.plan(e.settings)
-            self.preview.show_zone(e.settings.screen, p.zone)
+            p = core.plan(e.settings, self.live)
+            name = p.monitor.name + " · " if p.monitor else ""
+            caption = f"{name}{p.settings.screen[0]} × {p.settings.screen[1]}"
+            if any(panels):
+                caption += {"leave": " · taskbar may overlap the game",
+                            "fit": " · game fits above the taskbar",
+                            "autohide": " · taskbar auto-hides while playing",
+                            "cover": " · game covers the taskbar in its zone"}[e.settings.taskbar]
+            self.preview.show_zone(p.settings.screen, p.zone, "", panels, e.settings.taskbar, caption)
             if user:
                 self._set_status("Unsaved changes." if self.is_dirty() else "")
         self._refresh_chrome()
@@ -824,7 +1076,8 @@ class MainWindow(QMainWindow):
         return f"{base}-{i}"
 
     def new_preset(self) -> None:
-        self.entries.append(Entry(None, self._unique_name("new-game"), Settings(zone="left")))
+        self.entries.append(Entry(None, self._unique_name("new-game"),
+                                  Settings(zone="left", monitor="primary" if self.live.monitors else "")))
         self._rebuild_list(len(self.entries) - 1)
         self.editor.name.setFocus()
         self.editor.name.selectAll()
@@ -896,9 +1149,9 @@ class MainWindow(QMainWindow):
         if e.error:
             self._set_status(f"Fix this first: {e.error}", "error")
             return
-        p = core.plan(e.settings)
+        p = core.plan(e.settings, self.live)
         try:
-            _, conflicts = core.write_rule(e.settings, e.name, p.kwin_rect, self.rules_path)
+            _, conflicts = core.write_rule(p.settings, e.name, p.kwin_rect, self.rules_path)
         except OSError as exc:
             self._set_status(f"Couldn't write the KWin rule: {exc}", "error")
             return
@@ -911,6 +1164,29 @@ class MainWindow(QMainWindow):
             self._set_status(msg + f" But KWin didn't reload ({info}).", "warn")
         else:
             self._set_status(msg + hint, "ok")
+
+    def redetect(self) -> None:
+        """Look for monitors and panels again and refresh the current game's view."""
+        self.live = monitors.detect()
+        self.editor.set_live(self.live)
+        if 0 <= self._current < len(self.entries):
+            e = self.entries[self._current]
+            self.editor.load(e.name, e.settings)
+            self._form_changed(user=False)
+        found = ", ".join(m.name for m in self.live.monitors) or "no monitors"
+        self._set_status(f"Detected {found}; {len(self.live.panels)} panel(s).")
+
+    def _restore_stale_taskbar(self) -> None:
+        """If a game launched with auto-hide was killed, its taskbar change gets undone here."""
+        if not taskbar.state_path().exists():
+            return
+        try:
+            restored = taskbar.restore()
+        except (OSError, RuntimeError) as exc:
+            self._set_status(f"Couldn't restore the taskbar after an earlier game: {exc}", "warn")
+            return
+        if restored:
+            self._set_status("Restored the taskbar, which an earlier game left auto-hidden.", "ok")
 
     # ---- dialogs (separate methods so tests can stub them)
 

@@ -27,6 +27,10 @@ from .zones import DEFAULT_SCREEN, PRESETS, Rect, parse_point, parse_rect, parse
 
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 
+# leave: do nothing; fit: shrink the zone to stay clear of always-visible panels;
+# autohide: auto-hide panels while the game runs; cover: game window stacks above panels.
+TASKBAR_MODES = ("leave", "fit", "autohide", "cover")
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -41,6 +45,10 @@ class Settings:
     gamescope_args: str = ""
     wmclass: str = "gamescope"
     command: tuple[str, ...] = ()
+    # "" = use screen/origin/scale as stored; "primary" or an output name (e.g. "DP-1")
+    # = read them from that monitor at launch, keeping the stored values as a fallback.
+    monitor: str = ""
+    taskbar: str = "leave"
 
     def merged(self, **overrides) -> "Settings":
         """Return a copy with every non-None override applied."""
@@ -101,6 +109,11 @@ def from_table(name: str, table: dict) -> Settings:
                 v = _need(v, int)
             elif key == "scale":
                 v = float(_need(v, (int, float)))
+            elif key == "monitor":
+                v = _need(v, str)
+            elif key == "taskbar":
+                if v not in TASKBAR_MODES:
+                    raise ValueError(f"must be one of {', '.join(TASKBAR_MODES)}")
             elif key in ("gamescope_args", "wmclass"):
                 v = _need(v, str)
             elif key == "command":

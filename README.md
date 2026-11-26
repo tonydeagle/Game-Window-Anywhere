@@ -128,6 +128,40 @@ Steam launch option:   /path/to/gwa run rocketleague -- %command%
 Heroic wrapper:        Executable /path/to/gwa, Arguments: run rocketleague --
 ```
 
+### Monitors and the taskbar
+
+```sh
+gwa monitors                                   # what gwa detects
+gwa save spire left --monitor primary --taskbar fit
+gwa save rocketleague right --width 2560 --monitor primary --taskbar cover
+```
+
+**Monitor detection** uses `kscreen-doctor`. A preset with `--monitor primary` (or an output
+name like `DP-1`) reads that monitor's resolution, position and scale at every launch. If you
+change resolution, scaling or monitor layout, the preset follows along. If the monitor isn't
+connected, gwa falls back to the stored values and says so in `run.log`. Without `--monitor`,
+`--screen`, `--origin` and `--scale` are used exactly as given, as before. In the GUI, use
+the **Monitor** dropdown.
+
+**Taskbar** (`--taskbar`, or the Taskbar card in the GUI). An always-visible Plasma panel sits
+on top of normal windows, so by default it covers the bottom of a full-height game.
+
+| Mode | What happens |
+|---|---|
+| `leave` (default) | Nothing changes |
+| `fit` | The zone gets shorter by the panel's thickness (e.g. 1720x1394 above a 46 px panel), so nothing overlaps |
+| `autohide` | Panels on that monitor switch to auto-hide when the game starts and switch back when it exits. Needs the game started with `gwa run` (the launch option) |
+| `cover` | The game window goes above the panel inside its zone, like real fullscreen, while the panel stays visible next to it. Uses KWin's *Layer* window rule (recent Plasma 6). Older versions ignore it |
+
+With `autohide`, gwa stays running next to the game so it can restore the panel afterwards. If it
+gets killed anyway (crash, power loss), the next `gwa run` or opening the GUI restores the panel.
+You can also do it by hand:
+
+```sh
+gwa taskbar status
+gwa taskbar restore           # --force if gwa thinks a game is still running
+```
+
 ### Troubleshooting a launch
 
 When Steam or Heroic starts `gwa run`, its messages aren't shown anywhere, so each run is also
@@ -197,7 +231,7 @@ hardware yet. Reports are welcome.
 
 - There is one zone at a time, because every gamescope window has the class `gamescope`.
   Running two games in two zones at once would need per-instance window matching.
-- Planned: monitor detection via `kscreen-doctor`.
+- Multi-monitor detection is covered by tests but hasn't been tried on real hardware yet.
 
 ## Development
 

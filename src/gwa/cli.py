@@ -7,13 +7,16 @@ import os
 import re
 import shlex
 import shutil
+import signal
+import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, core, gamescope, kwinrules, presets
-from .presets import Settings
+from . import __version__, core, gamescope, kwinrules, monitors, presets, taskbar
+from .monitors import Live
+from .presets import TASKBAR_MODES, Settings
 from .zones import PRESETS, Rect, compute_zone, parse_point, parse_rect, parse_size
 
 
@@ -64,6 +67,15 @@ def _zone_options() -> argparse.ArgumentParser:
     gs.add_argument("--gamescope-args", metavar="ARGS",
                     help='extra gamescope flags, e.g. "-r 144 -F fsr"')
     gs.add_argument("--wmclass", help="window class the KWin rule matches (default: gamescope)")
+
+    d = p.add_argument_group("monitor and taskbar")
+    d.add_argument("--monitor", metavar="NAME",
+                   help="follow a detected monitor: 'primary' or an output name like DP-1 "
+                        "(see `gwa monitors`); '' to use --screen/--origin/--scale as given")
+    d.add_argument("--taskbar", choices=TASKBAR_MODES,
+                   help="leave: do nothing (default); fit: shrink the zone to stay clear of the "
+                        "taskbar; autohide: auto-hide the taskbar while the game runs; cover: the "
+                        "game window goes above the taskbar inside its zone")
     return p
 
 
@@ -112,15 +124,16 @@ def _settings(args) -> tuple[str, Settings, bool]:
     return target, base.merged(**_cli_overrides(args)), saved
 
 
-def _resolve(s: Settings) -> tuple[Rect, Rect, list[str]]:
-    """Return (zone in physical px, kwin geometry in logical px, gamescope args)."""
+def _plan(s: Settings) -> tuple[core.Plan, Live | None]:
+    """Plan the zone, detecting monitors/panels first when the settings need them."""
+    live = monitors.detect() if core.needs_live(s) else None
     try:
-        p = core.plan(s)
+        p = core.plan(s, live)
     except ValueError as e:
         _die(str(e))
     for w in p.warnings:
         print(f"warning: {w}", file=sys.stderr)
-    return p.zone, p.kwin_rect, p.gamescope_args
+    return p, live
 
 
 def _describe(s: Settings) -> str:
@@ -141,6 +154,10 @@ def _describe(s: Settings) -> str:
         extras.append(f"scale {s.scale:g}")
     if s.gamescope_args:
         extras.append(f"gamescope {s.gamescope_args!r}")
+    if s.monitor:
+        extras.append(f"monitor {s.monitor}")
+    if s.taskbar != "leave":
+        extras.append(f"taskbar {s.taskbar}")
     return f"{s.zone:<6} {geo}" + (f"  ({', '.join(extras)})" if extras else "")
 
 
@@ -157,7 +174,8 @@ RELOAD_SETTLE_SECONDS = 1.0
 
 def _write_rule(args, s: Settings, label: str, kwin_rect: Rect, dry_run: bool = False) -> str:
     """Write the rule and reload KWin. Returns a one-line outcome for the run log."""
-    values = kwinrules.build_rule(kwin_rect, s.wmclass, f"{label} {kwin_rect}")
+    values = kwinrules.build_rule(kwin_rect, s.wmclass, f"{label} {kwin_rect}",
+                                  above_panels=s.taskbar == "cover")
     path = _rules_path(args)
 
     if dry_run:
@@ -240,9 +258,11 @@ def _print_launch_options(zone: Rect, gs_args: list[str], preset_name: str | Non
 
 def cmd_apply(args) -> int:
     label, s, saved = _settings(args)
-    zone, kwin_rect, gs_args = _resolve(s)
-    _write_rule(args, s, label, kwin_rect, dry_run=args.dry_run)
-    _print_launch_options(zone, gs_args, label if saved else None)
+    p, _ = _plan(s)
+    _write_rule(args, p.settings, label, p.kwin_rect, dry_run=args.dry_run)
+    if s.taskbar == "autohide":
+        print("note: the taskbar auto-hides only while a game started with `gwa run` is running.")
+    _print_launch_options(p.zone, p.gamescope_args, label if saved else None)
     return 0
 
 
@@ -255,23 +275,73 @@ def cmd_run(args) -> int:
     binary = shutil.which("gamescope")
     if binary is None:
         _die("gamescope not found in PATH")
-    zone, kwin_rect, gs_args = _resolve(s)
-    outcome = _write_rule(args, s, label, kwin_rect)
-    cmd = gamescope.full_command(gs_args, game, binary)
+    p, live = _plan(s)
+    outcome = _write_rule(args, p.settings, label, p.kwin_rect)
+    cmd = gamescope.full_command(p.gamescope_args, game, binary)
     shown = shlex.join(redact(cmd))
-    lines = [f"run {label}: zone {kwin_rect}", f"  {outcome}"]
+    where = f" on {p.monitor.name}" if p.monitor else ""
+    lines = [f"run {label}: zone {p.kwin_rect}{where}", f"  {outcome}"]
+    lines += [f"  warning: {w}" for w in p.warnings]
     if any(os.path.basename(a) == "gamescope" for a in game):
         nested = ("  WARNING: the launcher also starts its own gamescope inside gwa's. Turn off the "
                   "launcher's Gamescope setting / remove its gamescope wrapper, or the game gets "
                   "black bars and a capped resolution.")
         lines.append(nested)
         print(nested.strip(), file=sys.stderr)
+    hide = s.taskbar == "autohide"
+    if hide:
+        lines.append("  " + _hide_taskbar(p, live))
     _log_run([*lines, f"  exec: {shown}"])
     if "reconfigured" in outcome:
         time.sleep(RELOAD_SETTLE_SECONDS)
     print(f"exec: {shown}", flush=True)
-    os.execv(binary, cmd)
-    return 0  # unreachable
+    if not hide:
+        os.execv(binary, cmd)  # hand the process over to gamescope, as launchers expect
+        return 0  # only reached when execv is mocked in tests
+    # Auto-hide: stay as gamescope's parent so the taskbar can be restored when it exits.
+    rc = _run_child(cmd)
+    restored = _end_taskbar()
+    _log_run([f"run {label}: game exited ({rc}); {restored}"])
+    return rc
+
+
+def _hide_taskbar(p: core.Plan, live: Live | None) -> str:
+    if live is None or live.panel_error:
+        return f"taskbar: couldn't detect panels ({live.panel_error if live else 'no detection'})"
+    try:
+        changed = taskbar.begin(live.panels_on(p.monitor), os.getpid())
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        return f"taskbar: couldn't auto-hide ({e})"
+    if changed:
+        return f"taskbar: auto-hidden panel(s) {', '.join(map(str, changed))} until the game exits"
+    return "taskbar: already hidden (no always-visible panels, or another game hid them)"
+
+
+def _end_taskbar() -> str:
+    try:
+        restored = taskbar.end(os.getpid())
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        return f"couldn't restore the taskbar ({e}); run `gwa taskbar restore`"
+    if restored:
+        return "taskbar restored"
+    return "taskbar left hidden (another game is still using auto-hide)" if taskbar.status()["pids"] \
+        else "taskbar unchanged"
+
+
+def _run_child(cmd: list[str]) -> int:
+    """Run cmd, forwarding termination signals (e.g. Steam's Stop button) to it."""
+    child = subprocess.Popen(cmd)
+
+    def forward(sig, _frame):
+        try:
+            child.send_signal(sig)
+        except ProcessLookupError:
+            pass
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, forward)
+    rc = child.wait()
+    return 128 - rc if rc < 0 else rc
 
 
 def cmd_save(args) -> int:
@@ -282,7 +352,7 @@ def cmd_save(args) -> int:
     _, s, _ = _settings(args)
     if args.command:
         s = s.merged(command=tuple(args.command))
-    _resolve(s)  # validate before saving anything
+    _plan(s)  # validate before saving anything
 
     path = _presets_path(args)
     stored = _load_presets(args)
@@ -359,6 +429,51 @@ def cmd_install_desktop(args) -> int:
           "The app menu will pick this up shortly (or after logging out and back in).")
     if not args.remove:
         print("\nIf you move this folder later, run install-desktop again.")
+    return 0
+
+
+def cmd_monitors(args) -> int:
+    live = monitors.detect()
+    if live.monitors:
+        print("Monitors:")
+        for m in live.monitors:
+            x, y, lw, lh = m.logical
+            star = "  (primary)" if m.primary else ""
+            print(f"  {m.label()}  at {x},{y}{star}")
+    else:
+        print(f"No monitors detected ({live.monitor_error}).")
+    if live.panels:
+        print("\nPanels:")
+        modes = {"none": "always visible", "autohide": "auto-hide", "dodgewindows": "dodge windows"}
+        for pnl in live.panels:
+            print(f"  {pnl.location:<7} {pnl.thickness} px, {modes.get(pnl.hiding, pnl.hiding)}")
+    elif live.panel_error:
+        print(f"\nPanels: couldn't detect ({live.panel_error}).")
+    else:
+        print("\nPanels: none")
+    print("\nUse `--monitor primary` (or a name above) to follow a monitor in a preset.")
+    return 0 if live.monitors else 1
+
+
+def cmd_taskbar(args) -> int:
+    if args.action == "status":
+        st = taskbar.status()
+        if not st["panels"]:
+            print("gwa hasn't changed any panels.")
+        else:
+            running = ", ".join(map(str, st["pids"])) or "none (will restore on next run)"
+            print(f"Auto-hidden by gwa: panel(s) {', '.join(st['panels'])}; games running: {running}")
+        return 0
+    try:
+        restored = taskbar.restore(force=args.force)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        _die(f"couldn't restore the taskbar: {e}")
+    if restored:
+        print(f"Restored panel(s): {', '.join(f'{i} → {m}' for i, m in sorted(restored.items()))}")
+    elif taskbar.status()["pids"]:
+        print("A game started by gwa is still running with auto-hide; use --force to restore anyway.")
+    else:
+        print("Nothing to restore.")
     return 0
 
 
@@ -446,6 +561,15 @@ def build_parser() -> argparse.ArgumentParser:
     dk = sub.add_parser("install-desktop", help="add Game Window Anywhere to your app menu")
     dk.add_argument("--remove", action="store_true", help="remove the app-menu entry and icon")
     dk.set_defaults(func=cmd_install_desktop)
+
+    mo = sub.add_parser("monitors", help="list detected monitors and taskbar panels")
+    mo.set_defaults(func=cmd_monitors)
+
+    tb = sub.add_parser("taskbar", help="check or restore panels auto-hidden by gwa")
+    tb.add_argument("action", choices=("restore", "status"))
+    tb.add_argument("--force", action="store_true",
+                    help="restore even if a game started by gwa still seems to be running")
+    tb.set_defaults(func=cmd_taskbar)
 
     rules = argparse.ArgumentParser(add_help=False)
     rules.add_argument("--rules-file", type=Path, default=None, help="path to kwinrulesrc")

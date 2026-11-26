@@ -43,11 +43,11 @@ def default_path() -> Path:
     return Path(base) / "kwinrulesrc"
 
 
-def build_rule(rect: Rect, wmclass: str = "gamescope", label: str = "") -> dict[str, str]:
+def build_rule(rect: Rect, wmclass: str = "gamescope", label: str = "", above_panels: bool = False) -> dict[str, str]:
     desc = f"{DESCRIPTION_PREFIX}: {wmclass}"
     if label:
         desc += f" ({label})"
-    return {
+    rule = {
         "Description": desc,
         "wmclass": wmclass,
         "wmclassmatch": str(EXACT_MATCH),
@@ -67,6 +67,13 @@ def build_rule(rect: Rect, wmclass: str = "gamescope", label: str = "") -> dict[
         "fullscreen": "false",
         "fullscreenrule": str(FORCE),
     }
+    if above_panels:
+        # Plasma panels sit in KWin's "above" layer; "fullscreen" (ActiveLayer) is where a real
+        # fullscreen game goes, so the game covers the panel inside its zone only. KWin versions
+        # without the layer rule ignore these keys.
+        rule["layer"] = "fullscreen"
+        rule["layerrule"] = str(FORCE)
+    return rule
 
 
 # --------------------------------------------------------------------------
